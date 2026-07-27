@@ -8,10 +8,28 @@
 ERROR_PATTERN="${ERROR_PATTERN:-ERROR}"
 WARN_PATTERN="${WARN_PATTERN:-WARN}"
 
-# Prefixes every status line with [cluster/namespace] so parallel branches
-# stay distinguishable in the interleaved Jenkins console.
+GREEN_BG=$(printf '\033[1;30;42m')
+RED_TXT=$(printf '\033[1;31m')
+YEL_TXT=$(printf '\033[1;33m')
+RST=$(printf '\033[0m')
+
+# Wraps a name (cluster/namespace, pod/container, ...) in a bright-green fill.
+name() {
+  printf '%s%s%s' "$GREEN_BG" "$1" "$RST"
+}
+
+# Renders "ERROR=n WARN=m" from a *.stats file with ERROR in red, WARN in yellow.
+fmt_counts() {
+  local statsfile="$1" err warn
+  err=$(grep '^ERROR=' "$statsfile" | cut -d= -f2)
+  warn=$(grep '^WARN=' "$statsfile" | cut -d= -f2)
+  printf '%sERROR=%s%s %sWARN=%s%s' "$RED_TXT" "${err:-0}" "$RST" "$YEL_TXT" "${warn:-0}" "$RST"
+}
+
+# Prefixes every status line with [cluster/namespace] (bright-green fill) so
+# parallel branches stay distinguishable in the interleaved Jenkins console.
 tag() {
-  echo "[$CLUSTER/$NAMESPACE] $*"
+  echo "$(name "[$CLUSTER/$NAMESPACE]") $*"
 }
 
 k8s_setup() {
@@ -99,7 +117,7 @@ run_pair() {
         --since="$SINCE" --tail="$TAIL_LINES" > "${base}.raw.log" 2>"${base}.fetch.err" \
         || echo "(failed to fetch current logs, see ${base}.fetch.err)" >> "${base}.raw.log"
     process_log "${base}.raw.log" "${base}.color.log" "${base}.stats"
-    tag "$pod/$container: $(cat "${base}.stats" | tr '\n' ' ')"
+    tag "$(name "$pod/$container"): $(fmt_counts "${base}.stats")"
 
     if [ "$INCLUDE_PREVIOUS" = "true" ] && [ "${restarts:-0}" -gt 0 ]; then
       local pbase="$OUT_DIR/${pod}__${container}__previous"

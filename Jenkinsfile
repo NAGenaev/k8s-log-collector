@@ -6,6 +6,7 @@ pipeline {
         ansiColor('xterm')
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
+        skipDefaultCheckout()
     }
 
     parameters {
@@ -125,6 +126,10 @@ def generateReport() {
     def statsFiles = findFiles(glob: 'logs-out/**/*.stats')
     def skipFiles  = findFiles(glob: 'logs-out/**/.skip')
     def divider = '================================================================'
+    def GREEN = "[1;30;42m"
+    def RED   = "[1;31m"
+    def YEL   = "[1;33m"
+    def RST   = "[0m"
 
     def totalErr = 0, totalWarn = 0
     def byPod = [:]
@@ -141,26 +146,35 @@ def generateReport() {
         byPod[podKey] = [acc[0] + err, acc[1] + warn]
     }
 
-    echo divider
-    echo "SUMMARY: ${statsFiles.length} pod/container log(s) collected"
-    echo "TOTAL ERROR=${totalErr}   TOTAL WARN=${totalWarn}"
-    echo divider
-    echo 'Per-pod breakdown:'
-    byPod.each { k, v -> echo "  ${k}   ERROR=${v[0]}   WARN=${v[1]}" }
+    // Everything below is batched into two echo calls total (summary, then
+    // logs) so the console isn't padded out with one Jenkins step marker
+    // per line — only the actual data is worth a line here.
+    def summary = []
+    summary << divider
+    summary << "SUMMARY: ${statsFiles.length} pod/container log(s) collected"
+    summary << "TOTAL ${RED}ERROR=${totalErr}${RST}   ${YEL}WARN=${totalWarn}${RST}"
+    summary << divider
+    summary << 'Per-pod breakdown:'
+    byPod.each { k, v -> summary << "  ${GREEN}${k}${RST}   ${RED}ERROR=${v[0]}${RST}   ${YEL}WARN=${v[1]}${RST}" }
 
     if (skipFiles) {
-        echo divider
-        echo 'SKIPPED (no data collected for these pairs):'
-        skipFiles.each { f -> echo "  ${f.path.replace('/.skip', '')}: ${readFile(f.path).trim()}" }
+        summary << divider
+        summary << 'SKIPPED (no data collected for these pairs):'
+        skipFiles.each { f -> summary << "  ${GREEN}${f.path.replace('/.skip', '')}${RST}: ${readFile(f.path).trim()}" }
         currentBuild.result = 'UNSTABLE'
     }
-    echo divider
+    summary << divider
+    echo summary.join('\n')
 
+    def logLines = []
     findFiles(glob: 'logs-out/**/*.color.log').each { f ->
         def label = f.path.replace('logs-out/', '').replace('.color.log', '')
         def counts = statsByLabel[label] ?: [0, 0]
-        echo "\n---- ${label}   (ERROR=${counts[0]} WARN=${counts[1]}) ----"
-        sh "cat '${f.path}'"
+        logLines << "\n---- ${GREEN}${label}${RST}   (${RED}ERROR=${counts[0]}${RST} ${YEL}WARN=${counts[1]}${RST}) ----"
+        logLines << readFile(f.path).trim()
+    }
+    if (logLines) {
+        echo logLines.join('\n')
     }
 
     if (statsFiles.length == 0) {
