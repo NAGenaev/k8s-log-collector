@@ -1,6 +1,14 @@
 pipeline {
     agent { label 'k8s-tools' }
 
+    environment {
+        // Subdirectory inside the git repo where this project's files (Jenkinsfile,
+        // config/, scripts/) live, relative to the repo root. Leave '.' if the repo
+        // root IS the project root; set e.g. 'ToolsForK8s/k8s-log-collector' when this
+        // Jenkinsfile lives nested inside a monorepo.
+        PROJECT_DIR = '.'
+    }
+
     options {
         timestamps()
         ansiColor('xterm')
@@ -27,12 +35,15 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                sh 'rm -rf logs-out'
+                dir(env.PROJECT_DIR) {
+                    sh 'rm -rf logs-out'
+                }
             }
         }
 
         stage('Validate & Resolve') {
             steps {
+                dir(env.PROJECT_DIR) {
                 script {
                     if (!params.DEPLOYMENT_NAME?.trim()) {
                         error "DEPLOYMENT_NAME is required"
@@ -73,11 +84,13 @@ pipeline {
                     echo "Resolved pairs:\n" + pairs.collect { "  - ${it.cluster}/${it.namespace}" }.join('\n')
                     env.PAIRS_JSON = writeJSON returnText: true, json: pairs
                 }
+                }
             }
         }
 
         stage('Fetch logs') {
             steps {
+                dir(env.PROJECT_DIR) {
                 script {
                     def pairs = readJSON text: env.PAIRS_JSON
                     def branches = [:]
@@ -86,11 +99,13 @@ pipeline {
                     }
                     parallel branches
                 }
+                }
             }
         }
 
         stage('Report') {
             steps {
+                dir(env.PROJECT_DIR) {
                 script {
                     int rc = sh(label: 'report', returnStatus: true, script: '''
                         set -uo pipefail
@@ -104,13 +119,14 @@ pipeline {
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
+                }
             }
         }
     }
 }
 
 def fetchAndProcess(Map p) {
-    def dir = "logs-out/${p.cluster}__${p.namespace}"
+    def outDir = "logs-out/${p.cluster}__${p.namespace}"
     try {
         withCredentials([string(credentialsId: "k8s-token-${p.cluster}-${p.namespace}", variable: 'K8S_TOKEN')]) {
             withEnv([
@@ -118,7 +134,7 @@ def fetchAndProcess(Map p) {
                 "CLUSTER=${p.cluster}", "NAMESPACE=${p.namespace}",
                 "DEPLOY=${params.DEPLOYMENT_NAME}", "SINCE=${params.SINCE}",
                 "TAIL_LINES=${params.TAIL_LINES}", "INCLUDE_PREVIOUS=${params.INCLUDE_PREVIOUS_LOGS}",
-                "LOG_LEVELS=${params.LOG_LEVELS}", "OUT_DIR=${dir}"
+                "LOG_LEVELS=${params.LOG_LEVELS}", "OUT_DIR=${outDir}"
             ]) {
                 sh label: "fetch ${p.cluster}/${p.namespace}", script: '''
                     set -uo pipefail
@@ -131,6 +147,6 @@ def fetchAndProcess(Map p) {
         }
     } catch (err) {
         echo "WARNING: skipping ${p.cluster}/${p.namespace}: ${err.getMessage()}"
-        writeFile file: "${dir}/.skip", text: "reason=credential-or-error: ${err.getMessage()}\n"
+        writeFile file: "${outDir}/.skip", text: "reason=credential-or-error: ${err.getMessage()}\n"
     }
 }
