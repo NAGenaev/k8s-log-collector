@@ -12,9 +12,22 @@ Jenkins-пайплайн для выгрузки логов подов депл�
 
 ## Предпосылки
 
-- Jenkins-агент с лейблом `k8s-tools`: `bash`, `kubectl`, `jq`.
-- Плагины: **AnsiColor**, **Pipeline Utility Steps** (`readYaml`/`readJSON`/`writeJSON`/`readProperties`/`findFiles`).
+- Jenkins-агент с лейблом `k8s-tools`: `bash`, `kubectl`, `jq`, `base64`.
+- Плагины: **AnsiColor**, **Pipeline Utility Steps** (`readYaml`/`readJSON`/`writeJSON`), **Timestamper** (шаг `timestamps()`).
 - Job типа "Pipeline script from SCM" на этот репозиторий.
+
+## Схема `config/clusters.yaml`
+
+```yaml
+clusters:
+  - name: dc1
+    apiServer: https://k8s-dc1.example.com:6443
+    insecureSkipTlsVerify: false      # только для лабы/self-signed; в проде — caCertBase64
+    caCertBase64: ""                  # base64(PEM) CA-сертификата кластера (не секрет, публичный ключ)
+    namespaces: [shard-01, shard-02, shard-03]
+```
+
+`caCertBase64` приоритетнее `insecureSkipTlsVerify`, если задан. Для боевых кластеров нужно указывать именно его — `insecureSkipTlsVerify: true` предназначен только для тестовых окружений с self-signed сертификатами (как в minikube).
 
 ## Настройка credentials
 
