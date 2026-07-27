@@ -153,7 +153,7 @@ def generateReport() {
         sh "cat '${f.path}'"
     }
 
-    if (statsFiles.isEmpty()) {
+    if (statsFiles.length == 0) {
         error "No log data collected for any selected pair"
     }
 }
