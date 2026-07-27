@@ -22,7 +22,7 @@ k8s_setup() {
 resolve_selector() {
   local ns="$1" deploy="$2" json
   json=$(kubectl --request-timeout=15s -n "$ns" get deployment "$deploy" -o json 2>/dev/null) || return 1
-  echo "$json" | jq -r '
+  printf '%s\n' "$json" | jq -r '
     (.spec.selector.matchLabels // {}) as $m
     | if ($m|length) > 0 then ($m | to_entries | map("\(.key)=\(.value)") | join(",")) else empty end'
 }
