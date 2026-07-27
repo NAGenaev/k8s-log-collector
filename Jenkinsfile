@@ -171,7 +171,9 @@ def generateReport() {
         def label = f.path.replace('logs-out/', '').replace('.color.log', '')
         def counts = statsByLabel[label] ?: [0, 0]
         logLines << "\n---- ${GREEN}${label}${RST}   (${RED}ERROR=${counts[0]}${RST} ${YEL}WARN=${counts[1]}${RST}) ----"
-        logLines << readFile(f.path).trim()
+        // NB: String.trim() strips control chars (code point <= 0x20), which would eat the
+        // leading ESC (0x1B) of a highlighted first line — strip only the trailing newline instead.
+        logLines << readFile(f.path).replaceAll('[\\r\\n]+$', '')
     }
     if (logLines) {
         echo logLines.join('\n')
