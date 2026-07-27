@@ -128,14 +128,14 @@ def generateReport() {
         int warn = (props.WARN ?: '0') as int
         totalErr += err; totalWarn += warn
         def label = f.path.replace('logs-out/', '').replace('.stats', '')
-        echo sprintf("%-70s ERROR=%-6d WARN=%-6d", label, err, warn)
+        echo "${label}  ERROR=${err} WARN=${warn}"
         def podKey = label.replaceAll(/__previous$/, '').replaceAll(/__[^_]+$/, '')
         def acc = byPod.getOrDefault(podKey, [0, 0])
         byPod[podKey] = [acc[0] + err, acc[1] + warn]
     }
 
     echo "\n---- Per-pod subtotals ----"
-    byPod.each { k, v -> echo sprintf("%-70s ERROR=%-6d WARN=%-6d", k, v[0], v[1]) }
+    byPod.each { k, v -> echo "${k}  ERROR=${v[0]} WARN=${v[1]}" }
     echo "\n==== TOTAL: ERROR=${totalErr} WARN=${totalWarn} ===="
 
     if (skipFiles) {
