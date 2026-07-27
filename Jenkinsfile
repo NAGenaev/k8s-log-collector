@@ -61,7 +61,8 @@ pipeline {
                                 pairs << [cluster  : c.name,
                                           namespace: ns,
                                           apiServer: c.apiServer,
-                                          insecure : (c.insecureSkipTlsVerify ?: false).toString()]
+                                          insecure : (c.insecureSkipTlsVerify ?: false).toString(),
+                                          caCert   : (c.caCertBase64 ?: '')]
                             }
                         }
                     }
@@ -102,7 +103,7 @@ def fetchAndProcess(Map p) {
     try {
         withCredentials([string(credentialsId: "k8s-token-${p.cluster}-${p.namespace}", variable: 'K8S_TOKEN')]) {
             withEnv([
-                "API_SERVER=${p.apiServer}", "INSECURE=${p.insecure}",
+                "API_SERVER=${p.apiServer}", "INSECURE=${p.insecure}", "CA_CERT_B64=${p.caCert}",
                 "CLUSTER=${p.cluster}", "NAMESPACE=${p.namespace}",
                 "DEPLOY=${params.DEPLOYMENT_NAME}", "SINCE=${params.SINCE}",
                 "TAIL_LINES=${params.TAIL_LINES}", "INCLUDE_PREVIOUS=${params.INCLUDE_PREVIOUS_LOGS}",

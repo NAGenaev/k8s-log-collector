@@ -32,11 +32,23 @@ tag() {
   echo "$(name "[$CLUSTER/$NAMESPACE]") $*"
 }
 
+# $5 (ca_cert_b64) is optional: base64-encoded PEM of the cluster's CA
+# certificate (public data, not a secret — safe to keep in config/clusters.yaml).
+# When set, it takes precedence over $3 (insecure) for TLS verification.
 k8s_setup() {
-  local server="$1" token="$2" insecure="$3" kubeconfig="$4"
+  local server="$1" token="$2" insecure="$3" kubeconfig="$4" ca_cert_b64="${5:-}"
+  local tls_flag
   mkdir -p "$(dirname "$kubeconfig")"
-  kubectl --kubeconfig="$kubeconfig" config set-cluster the-cluster --server="$server" \
-      $( [ "$insecure" = "true" ] && echo --insecure-skip-tls-verify=true ) >/dev/null
+  if [ -n "$ca_cert_b64" ]; then
+    local ca_file; ca_file="$(dirname "$kubeconfig")/ca.crt"
+    printf '%s' "$ca_cert_b64" | base64 -d > "$ca_file"
+    tls_flag="--certificate-authority=$ca_file"
+  elif [ "$insecure" = "true" ]; then
+    tls_flag="--insecure-skip-tls-verify=true"
+  else
+    tls_flag=""
+  fi
+  kubectl --kubeconfig="$kubeconfig" config set-cluster the-cluster --server="$server" $tls_flag >/dev/null
   kubectl --kubeconfig="$kubeconfig" config set-credentials the-user --token="$token" >/dev/null
   kubectl --kubeconfig="$kubeconfig" config set-context the-context \
       --cluster=the-cluster --user=the-user --namespace="$NAMESPACE" >/dev/null
@@ -88,7 +100,7 @@ process_log() {
 
 run_pair() {
   local kubeconfig; kubeconfig="$(mktemp -d)/kubeconfig"
-  k8s_setup "$API_SERVER" "$K8S_TOKEN" "$INSECURE" "$kubeconfig"
+  k8s_setup "$API_SERVER" "$K8S_TOKEN" "$INSECURE" "$kubeconfig" "${CA_CERT_B64:-}"
   export KUBECONFIG="$kubeconfig"
 
   tag "resolving deployment '$DEPLOY'..."
