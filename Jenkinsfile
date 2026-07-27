@@ -11,12 +11,12 @@ pipeline {
 
     parameters {
         string(name: 'DEPLOYMENT_NAME', defaultValue: '', description: 'Deployment to pull logs for (required)')
-        booleanParam(name: 'CLUSTER_PK2', defaultValue: false, description: 'Cluster: pk2-ppsa01')
-        booleanParam(name: 'CLUSTER_PK5', defaultValue: false, description: 'Cluster: pk5-ppsa01')
-        booleanParam(name: 'NS_CENTRAL', defaultValue: false, description: 'Namespace suffix: ppsa-central')
-        booleanParam(name: 'NS_MASTER01', defaultValue: false, description: 'Namespace suffix: ppsa-master01')
-        booleanParam(name: 'NS_MASTER02', defaultValue: false, description: 'Namespace suffix: ppsa-master02')
-        booleanParam(name: 'NS_SIMPLE', defaultValue: false, description: 'Namespace suffix: ppsa-simple')
+        booleanParam(name: 'CLUSTER_DC1', defaultValue: false, description: 'Cluster: dc1')
+        booleanParam(name: 'CLUSTER_DC2', defaultValue: false, description: 'Cluster: dc2')
+        booleanParam(name: 'NS_SHARD_01', defaultValue: false, description: 'Namespace: shard-01')
+        booleanParam(name: 'NS_SHARD_02', defaultValue: false, description: 'Namespace: shard-02')
+        booleanParam(name: 'NS_SHARD_03', defaultValue: false, description: 'Namespace: shard-03')
+        booleanParam(name: 'NS_SHARD_04', defaultValue: false, description: 'Namespace: shard-04')
         booleanParam(name: 'INCLUDE_PREVIOUS_LOGS', defaultValue: true, description: 'Fetch --previous logs too (for restarted containers)')
         choice(name: 'LOG_LEVELS', choices: ['WARN_ERROR', 'ALL'], description: 'WARN_ERROR = only WARN/ERROR lines in the log output; ALL = also include INFO/other lines')
         string(name: 'SINCE', defaultValue: '1h', description: 'kubectl logs --since')
@@ -40,28 +40,26 @@ pipeline {
                     def cfg = readYaml file: 'config/clusters.yaml'
 
                     def selectedClusters = []
-                    if (params.CLUSTER_PK2) selectedClusters << 'pk2-ppsa01'
-                    if (params.CLUSTER_PK5) selectedClusters << 'pk5-ppsa01'
+                    if (params.CLUSTER_DC1) selectedClusters << 'dc1'
+                    if (params.CLUSTER_DC2) selectedClusters << 'dc2'
 
-                    def selectedSuffixes = []
-                    if (params.NS_CENTRAL) selectedSuffixes << 'ppsa-central'
-                    if (params.NS_MASTER01) selectedSuffixes << 'ppsa-master01'
-                    if (params.NS_MASTER02) selectedSuffixes << 'ppsa-master02'
-                    if (params.NS_SIMPLE) selectedSuffixes << 'ppsa-simple'
+                    def selectedNs = []
+                    if (params.NS_SHARD_01) selectedNs << 'shard-01'
+                    if (params.NS_SHARD_02) selectedNs << 'shard-02'
+                    if (params.NS_SHARD_03) selectedNs << 'shard-03'
+                    if (params.NS_SHARD_04) selectedNs << 'shard-04'
 
-                    if (!selectedClusters || !selectedSuffixes) {
+                    if (!selectedClusters || !selectedNs) {
                         error "Select at least one cluster and one namespace"
                     }
 
-                    // Real namespace name is "<cluster>-<suffix>" (e.g. pk2-ppsa01-ppsa-central),
-                    // and the matching Jenkins credential ID is "token_<that full namespace name>".
                     def pairs = []
                     cfg.clusters.each { c ->
                         if (!selectedClusters.contains(c.name)) return
-                        c.namespaceSuffixes.each { suf ->
-                            if (selectedSuffixes.contains(suf)) {
+                        c.namespaces.each { ns ->
+                            if (selectedNs.contains(ns)) {
                                 pairs << [cluster  : c.name,
-                                          namespace: "${c.name}-${suf}",
+                                          namespace: ns,
                                           apiServer: c.apiServer,
                                           insecure : (c.insecureSkipTlsVerify ?: false).toString(),
                                           caCert   : (c.caCertBase64 ?: '')]
@@ -114,7 +112,7 @@ pipeline {
 def fetchAndProcess(Map p) {
     def dir = "logs-out/${p.cluster}__${p.namespace}"
     try {
-        withCredentials([string(credentialsId: "token_${p.namespace}", variable: 'K8S_TOKEN')]) {
+        withCredentials([string(credentialsId: "k8s-token-${p.cluster}-${p.namespace}", variable: 'K8S_TOKEN')]) {
             withEnv([
                 "API_SERVER=${p.apiServer}", "INSECURE=${p.insecure}", "CA_CERT_B64=${p.caCert}",
                 "CLUSTER=${p.cluster}", "NAMESPACE=${p.namespace}",

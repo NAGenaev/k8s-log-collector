@@ -22,26 +22,26 @@ Jenkins-пайплайн для выгрузки логов подов депл�
 
 ```yaml
 clusters:
-  - name: pk2-ppsa01
-    apiServer: https://k8s-pk2-ppsa01.example.com:6443
+  - name: dc1
+    apiServer: https://k8s-dc1.example.com:6443
     insecureSkipTlsVerify: false      # только для лабы/self-signed; в проде — caCertBase64
     caCertBase64: ""                  # base64(PEM) CA-сертификата кластера (не секрет, публичный ключ)
-    namespaceSuffixes: [ppsa-central, ppsa-master01, ppsa-master02, ppsa-simple]
+    namespaces: [shard-01, shard-02, shard-03]
 ```
 
-Реальное имя неймспейса — `<cluster>-<suffix>`, например `pk2-ppsa01-ppsa-central`. `caCertBase64` приоритетнее `insecureSkipTlsVerify`, если задан. Для боевых кластеров нужно указывать именно его — `insecureSkipTlsVerify: true` предназначен только для тестовых окружений с self-signed сертификатами (как в minikube).
+`caCertBase64` приоритетнее `insecureSkipTlsVerify`, если задан. Для боевых кластеров нужно указывать именно его — `insecureSkipTlsVerify: true` предназначен только для тестовых окружений с self-signed сертификатами (как в minikube).
 
 ## Настройка credentials
 
-На каждую пару (кластер, неймспейс) — отдельный Jenkins credential типа **Secret text** с ID `token_<namespace>` (полное имя неймспейса, включая префикс кластера), содержащий токен ServiceAccount с правами на чтение логов в этом неймспейсе (например `get`/`list` на `pods`, `get` на `deployments`, `get` на `pods/log`).
+На каждую пару (кластер, неймспейс) — отдельный Jenkins credential типа **Secret text** с ID `k8s-token-<cluster>-<namespace>`, содержащий токен ServiceAccount с правами на чтение логов в этом неймспейсе (например `get`/`list` на `pods`, `get` на `deployments`, `get` на `pods/log`).
 
-Пример для `config/clusters.yaml` из репозитория: `token_pk2-ppsa01-ppsa-central`, `token_pk2-ppsa01-ppsa-master01`, `token_pk2-ppsa01-ppsa-master02`, `token_pk2-ppsa01-ppsa-simple`, и аналогично 4 штуки для `pk5-ppsa01`.
+Пример для `config/clusters.yaml` из репозитория: `k8s-token-dc1-shard-01`, `k8s-token-dc1-shard-02`, `k8s-token-dc1-shard-03`, `k8s-token-dc2-shard-01`, `k8s-token-dc2-shard-02`, `k8s-token-dc2-shard-04`.
 
 ## Как добавить кластер или неймспейс
 
-1. Добавить запись в `config/clusters.yaml` (кластер целиком, либо суффикс неймспейса в список существующего кластера).
+1. Добавить запись в `config/clusters.yaml` (кластер целиком, либо неймспейс в список существующего кластера).
 2. Добавить соответствующий `booleanParam` в `Jenkinsfile` (и обработку в `Validate & Resolve`).
-3. Создать credential `token_<cluster>-<suffix>` (полное имя неймспейса).
+3. Создать credential `k8s-token-<cluster>-<namespace>`.
 4. **Важно**: для job "Pipeline script from SCM" Jenkins показывает параметры от предыдущего успешного/завершённого билда — новый чекбокс появится в форме "Build with Parameters" только после одного прогона с обновлённым Jenkinsfile.
 
 ## Параметры билда
@@ -49,8 +49,8 @@ clusters:
 | Параметр | Назначение |
 |---|---|
 | `DEPLOYMENT_NAME` | Имя деплоймента (обязательно) |
-| `CLUSTER_PK2`, `CLUSTER_PK5` | Какие кластеры включить (pk2-ppsa01 / pk5-ppsa01) |
-| `NS_CENTRAL`, `NS_MASTER01`, `NS_MASTER02`, `NS_SIMPLE` | Какие суффиксы неймспейсов включить (пара кластер×суффикс валидна, только если суффикс реально есть в конфиге этого кластера) |
+| `CLUSTER_DC1`, `CLUSTER_DC2` | Какие кластеры включить |
+| `NS_SHARD_01`..`NS_SHARD_04` | Какие неймспейсы включить (пара кластер×неймспейс валидна, только если неймспейс реально есть в конфиге этого кластера) |
 | `INCLUDE_PREVIOUS_LOGS` | Дополнительно тянуть `kubectl logs --previous` для контейнеров с рестартами |
 | `LOG_LEVELS` | `WARN_ERROR` (по умолчанию) — в логе только строки ERROR/WARN; `ALL` — дополнительно печатать INFO/прочие строки без подсветки |
 | `SINCE` | `kubectl logs --since` (ограничение объёма) |
