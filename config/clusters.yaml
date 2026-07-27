@@ -1,9 +1,11 @@
 clusters:
-  - name: dc1
-    apiServer: https://k8s-dc1.example.com:6443
+  - name: pk2-ppsa01
+    apiServer: https://k8s-pk2-ppsa01.example.com:6443
     insecureSkipTlsVerify: false
-    namespaces: [shard-01, shard-02, shard-03]
-  - name: dc2
-    apiServer: https://k8s-dc2.example.com:6443
+    caCertBase64: ""
+    namespaceSuffixes: [ppsa-central, ppsa-master01, ppsa-master02, ppsa-simple]
+  - name: pk5-ppsa01
+    apiServer: https://k8s-pk5-ppsa01.example.com:6443
     insecureSkipTlsVerify: false
-    namespaces: [shard-01, shard-02, shard-04]
+    caCertBase64: ""
+    namespaceSuffixes: [ppsa-central, ppsa-master01, ppsa-master02, ppsa-simple]

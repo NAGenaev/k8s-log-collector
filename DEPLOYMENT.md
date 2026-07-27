@@ -100,25 +100,25 @@ base64 -w0 ca.crt
 
 ## 4. `config/clusters.yaml`
 
-Заполнить реальными данными по образцу (плейсхолдеры `k8s-dc1.example.com` — заменить на настоящие адреса API-серверов):
+Реальное имя неймспейса собирается как `<cluster>-<suffix>` (например `pk2-ppsa01-ppsa-central`), поэтому в конфиге хранятся именно суффиксы, а не полные имена:
 
 ```yaml
 clusters:
-  - name: dc1
-    apiServer: https://<api-server-dc1>:6443
+  - name: pk2-ppsa01
+    apiServer: https://<api-server-pk2-ppsa01>:6443
     insecureSkipTlsVerify: false
-    caCertBase64: "<base64 CA-сертификата dc1>"
-    namespaces: [shard-01, shard-02, shard-03]
-  - name: dc2
-    apiServer: https://<api-server-dc2>:6443
+    caCertBase64: "<base64 CA-сертификата pk2-ppsa01>"
+    namespaceSuffixes: [ppsa-central, ppsa-master01, ppsa-master02, ppsa-simple]
+  - name: pk5-ppsa01
+    apiServer: https://<api-server-pk5-ppsa01>:6443
     insecureSkipTlsVerify: false
-    caCertBase64: "<base64 CA-сертификата dc2>"
-    namespaces: [shard-01, shard-02, shard-04]
+    caCertBase64: "<base64 CA-сертификата pk5-ppsa01>"
+    namespaceSuffixes: [ppsa-central, ppsa-master01, ppsa-master02, ppsa-simple]
 ```
 
-`namespaces` — только те неймспейсы, где реально нужно искать логи (и где применён RBAC из шага 2). Список кластеров/неймспейсов в этом файле — источник истины, с которым сверяются чекбоксы параметров билда.
+`namespaceSuffixes` — только те суффиксы, где реально нужно искать логи (и где применён RBAC из шага 2). Список кластеров/суффиксов в этом файле — источник истины, с которым сверяются чекбоксы параметров билда.
 
-Если список кластеров/неймспейсов отличается от заготовки в репозитории (`dc1`/`dc2`, `shard-01..04`) — нужно также поправить `booleanParam`-ы и логику в `Validate & Resolve` в `Jenkinsfile` (см. раздел "Как добавить кластер/неймспейс" в `README.md`).
+Если набор кластеров/суффиксов отличается от заготовки в репозитории (`pk2-ppsa01`/`pk5-ppsa01`, `ppsa-central/master01/master02/simple`) — нужно также поправить `booleanParam`-ы и логику в `Validate & Resolve` в `Jenkinsfile` (см. раздел "Как добавить кластер/неймспейс" в `README.md`).
 
 Закоммитить и запушить `config/clusters.yaml` в ветку, на которую будет смотреть Jenkins job.
 
@@ -126,7 +126,7 @@ clusters:
 
 **Manage Jenkins → Credentials → System → Global credentials → Add Credentials**, тип **Secret text**, для каждой пары (кластер, неймспейс) из `config/clusters.yaml`:
 
-- ID: `k8s-token-<cluster>-<namespace>` (например `k8s-token-dc1-shard-01`) — должно **точно** совпадать с этим шаблоном, ID вычисляется в Jenkinsfile автоматически.
+- ID: `token_<полное имя неймспейса>` (например `token_pk2-ppsa01-ppsa-central`) — должно **точно** совпадать с этим шаблоном (namespace = cluster + "-" + suffix), ID вычисляется в Jenkinsfile автоматически как `token_${cluster}-${suffix}`.
 - Secret: токен, полученный на шаге 2.
 
 Ничего кроме токена в credential не хранится — endpoint и CA берутся из `config/clusters.yaml`.
