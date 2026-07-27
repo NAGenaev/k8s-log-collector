@@ -1,0 +1,11 @@
+# Pipeline run output (created by scripts/lib.sh during a build)
+logs-out/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
