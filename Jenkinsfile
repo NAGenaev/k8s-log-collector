@@ -23,7 +23,10 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+                sh 'rm -rf logs-out'
+            }
         }
 
         stage('Validate & Resolve') {

@@ -41,7 +41,11 @@ list_pods() {
 # a small "ERROR=n\nWARN=n" properties file to $stats. Substring match, not regex.
 process_log() {
   local raw="$1" color="$2" stats="$3"
-  awk -v RED=$'\033[31m' -v YEL=$'\033[33m' -v RST=$'\033[0m' \
+  local red yel rst
+  red=$(printf '\033[31m')
+  yel=$(printf '\033[33m')
+  rst=$(printf '\033[0m')
+  awk -v RED="$red" -v YEL="$yel" -v RST="$rst" \
       -v ep="$ERROR_PATTERN" -v wp="$WARN_PATTERN" -v statsfile="$stats" '
     BEGIN { err=0; warn=0 }
     index($0, ep) > 0 { err++; printf "%s%s%s\n", RED, $0, RST; next }
@@ -69,7 +73,8 @@ run_pair() {
     echo "reason=no pods found for selector '$selector'" > "$OUT_DIR/.skip"; return 0
   fi
 
-  printf '%s\n' "$pods" | while IFS=$'\t' read -r pod container restarts; do
+  local tab; tab=$(printf '\t')
+  printf '%s\n' "$pods" | while IFS="$tab" read -r pod container restarts; do
     [ -z "$pod" ] && continue
     local base="$OUT_DIR/${pod}__${container}"
     kubectl --request-timeout=30s -n "$NAMESPACE" logs "$pod" -c "$container" \
