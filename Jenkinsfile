@@ -111,7 +111,6 @@ pipeline {
 
 def fetchAndProcess(Map p) {
     def dir = "logs-out/${p.cluster}__${p.namespace}"
-    sh "mkdir -p '${dir}'"
     try {
         withCredentials([string(credentialsId: "k8s-token-${p.cluster}-${p.namespace}", variable: 'K8S_TOKEN')]) {
             withEnv([
@@ -124,6 +123,7 @@ def fetchAndProcess(Map p) {
                 sh label: "fetch ${p.cluster}/${p.namespace}", script: '''
                     set -uo pipefail
                     set +x
+                    mkdir -p "$OUT_DIR"
                     . scripts/lib.sh
                     run_pair
                 '''
