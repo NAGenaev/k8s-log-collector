@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # Fetch, count and colorize kubectl logs for one (cluster, namespace) pair.
 # Expects env vars: API_SERVER, INSECURE, CLUSTER, NAMESPACE, DEPLOY, SINCE,
-# TAIL_LINES, INCLUDE_PREVIOUS, OUT_DIR, K8S_TOKEN.
+# TAIL_LINES, INCLUDE_PREVIOUS, LOG_LEVELS, OUT_DIR, K8S_TOKEN.
+# LOG_LEVELS: "WARN_ERROR" (default, only WARN/ERROR lines in the log output)
+#             or "ALL" (also pass through INFO/other lines).
 
 ERROR_PATTERN="${ERROR_PATTERN:-ERROR}"
 WARN_PATTERN="${WARN_PATTERN:-WARN}"
+
+# Prefixes every status line with [cluster/namespace] so parallel branches
+# stay distinguishable in the interleaved Jenkins console.
+tag() {
+  echo "[$CLUSTER/$NAMESPACE] $*"
+}
 
 k8s_setup() {
   local server="$1" token="$2" insecure="$3" kubeconfig="$4"
@@ -37,20 +45,25 @@ list_pods() {
     "\($p.metadata.name)\t\($cname)\t\($rc)"'
 }
 
-# Reads $raw, writes a colorized copy to $color (ERROR=red, WARN=yellow) and
-# a small "ERROR=n\nWARN=n" properties file to $stats. Substring match, not regex.
+# Reads $raw, writes a colorized copy to $color (ERROR = white-on-red fill,
+# WARN = black-on-yellow fill) and a small "ERROR=n\nWARN=n" properties file
+# to $stats. Substring match, not regex. INFO/other lines are passed through
+# only when LOG_LEVELS=ALL; ERROR/WARN lines and counts are unaffected by the
+# filter either way.
 process_log() {
   local raw="$1" color="$2" stats="$3"
-  local red yel rst
-  red=$(printf '\033[31m')
-  yel=$(printf '\033[33m')
+  local red_bg yel_bg rst show_other
+  red_bg=$(printf '\033[1;97;41m')
+  yel_bg=$(printf '\033[1;30;43m')
   rst=$(printf '\033[0m')
-  awk -v RED="$red" -v YEL="$yel" -v RST="$rst" \
+  show_other=1
+  [ "${LOG_LEVELS:-WARN_ERROR}" = "WARN_ERROR" ] && show_other=0
+  awk -v RED="$red_bg" -v YEL="$yel_bg" -v RST="$rst" -v show_other="$show_other" \
       -v ep="$ERROR_PATTERN" -v wp="$WARN_PATTERN" -v statsfile="$stats" '
     BEGIN { err=0; warn=0 }
     index($0, ep) > 0 { err++; printf "%s%s%s\n", RED, $0, RST; next }
     index($0, wp) > 0 { warn++; printf "%s%s%s\n", YEL, $0, RST; next }
-    { print }
+    { if (show_other == "1") print }
     END { printf "ERROR=%d\nWARN=%d\n", err, warn > statsfile }
   ' "$raw" > "$color"
 }
@@ -60,18 +73,23 @@ run_pair() {
   k8s_setup "$API_SERVER" "$K8S_TOKEN" "$INSECURE" "$kubeconfig"
   export KUBECONFIG="$kubeconfig"
 
+  tag "resolving deployment '$DEPLOY'..."
   local selector
   if ! selector=$(resolve_selector "$NAMESPACE" "$DEPLOY"); then
+    tag "SKIP: deployment '$DEPLOY' not found"
     echo "reason=deployment '$DEPLOY' not found in $CLUSTER/$NAMESPACE" > "$OUT_DIR/.skip"; return 0
   fi
   if [ -z "$selector" ]; then
+    tag "SKIP: deployment '$DEPLOY' has no matchLabels selector"
     echo "reason=deployment '$DEPLOY' has no matchLabels selector" > "$OUT_DIR/.skip"; return 0
   fi
 
   local pods; pods=$(list_pods "$NAMESPACE" "$selector")
   if [ -z "$pods" ]; then
+    tag "SKIP: no pods found for selector '$selector'"
     echo "reason=no pods found for selector '$selector'" > "$OUT_DIR/.skip"; return 0
   fi
+  tag "selector='$selector', $(printf '%s\n' "$pods" | wc -l | tr -d ' ') pod/container(s) found"
 
   local tab; tab=$(printf '\t')
   printf '%s\n' "$pods" | while IFS="$tab" read -r pod container restarts; do
@@ -81,12 +99,14 @@ run_pair() {
         --since="$SINCE" --tail="$TAIL_LINES" > "${base}.raw.log" 2>"${base}.fetch.err" \
         || echo "(failed to fetch current logs, see ${base}.fetch.err)" >> "${base}.raw.log"
     process_log "${base}.raw.log" "${base}.color.log" "${base}.stats"
+    tag "$pod/$container: $(cat "${base}.stats" | tr '\n' ' ')"
 
     if [ "$INCLUDE_PREVIOUS" = "true" ] && [ "${restarts:-0}" -gt 0 ]; then
       local pbase="$OUT_DIR/${pod}__${container}__previous"
       if kubectl --request-timeout=30s -n "$NAMESPACE" logs "$pod" -c "$container" \
           --previous --tail="$TAIL_LINES" > "${pbase}.raw.log" 2>"${pbase}.fetch.err"; then
         process_log "${pbase}.raw.log" "${pbase}.color.log" "${pbase}.stats"
+        tag "$pod/$container (previous): $(cat "${pbase}.stats" | tr '\n' ' ')"
       else
         rm -f "${pbase}.raw.log" "${pbase}.fetch.err"
       fi

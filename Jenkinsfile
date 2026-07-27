@@ -17,6 +17,7 @@ pipeline {
         booleanParam(name: 'NS_SHARD_03', defaultValue: false, description: 'Namespace: shard-03')
         booleanParam(name: 'NS_SHARD_04', defaultValue: false, description: 'Namespace: shard-04')
         booleanParam(name: 'INCLUDE_PREVIOUS_LOGS', defaultValue: true, description: 'Fetch --previous logs too (for restarted containers)')
+        choice(name: 'LOG_LEVELS', choices: ['WARN_ERROR', 'ALL'], description: 'WARN_ERROR = only WARN/ERROR lines in the log output; ALL = also include INFO/other lines')
         string(name: 'SINCE', defaultValue: '1h', description: 'kubectl logs --since')
         string(name: 'TAIL_LINES', defaultValue: '5000', description: 'kubectl logs --tail per container')
     }
@@ -104,10 +105,11 @@ def fetchAndProcess(Map p) {
                 "CLUSTER=${p.cluster}", "NAMESPACE=${p.namespace}",
                 "DEPLOY=${params.DEPLOYMENT_NAME}", "SINCE=${params.SINCE}",
                 "TAIL_LINES=${params.TAIL_LINES}", "INCLUDE_PREVIOUS=${params.INCLUDE_PREVIOUS_LOGS}",
-                "OUT_DIR=${dir}"
+                "LOG_LEVELS=${params.LOG_LEVELS}", "OUT_DIR=${dir}"
             ]) {
                 sh label: "fetch ${p.cluster}/${p.namespace}", script: '''
                     set -uo pipefail
+                    set +x
                     . scripts/lib.sh
                     run_pair
                 '''
@@ -122,34 +124,42 @@ def fetchAndProcess(Map p) {
 def generateReport() {
     def statsFiles = findFiles(glob: 'logs-out/**/*.stats')
     def skipFiles  = findFiles(glob: 'logs-out/**/.skip')
+    def divider = '================================================================'
 
     def totalErr = 0, totalWarn = 0
     def byPod = [:]
+    def statsByLabel = [:]
     statsFiles.each { f ->
         def props = readProperties file: f.path
         int err = (props.ERROR ?: '0') as int
         int warn = (props.WARN ?: '0') as int
         totalErr += err; totalWarn += warn
         def label = f.path.replace('logs-out/', '').replace('.stats', '')
-        echo "${label}  ERROR=${err} WARN=${warn}"
+        statsByLabel[label] = [err, warn]
         def podKey = label.replaceAll(/__previous$/, '').replaceAll(/__[^_]+$/, '')
         def acc = byPod.getOrDefault(podKey, [0, 0])
         byPod[podKey] = [acc[0] + err, acc[1] + warn]
     }
 
-    echo "\n---- Per-pod subtotals ----"
-    byPod.each { k, v -> echo "${k}  ERROR=${v[0]} WARN=${v[1]}" }
-    echo "\n==== TOTAL: ERROR=${totalErr} WARN=${totalWarn} ===="
+    echo divider
+    echo "SUMMARY: ${statsFiles.length} pod/container log(s) collected"
+    echo "TOTAL ERROR=${totalErr}   TOTAL WARN=${totalWarn}"
+    echo divider
+    echo 'Per-pod breakdown:'
+    byPod.each { k, v -> echo "  ${k}   ERROR=${v[0]}   WARN=${v[1]}" }
 
     if (skipFiles) {
-        echo "\n---- Skipped pairs ----"
-        skipFiles.each { f -> echo "${f.path.replace('/.skip', '')}: ${readFile(f.path).trim()}" }
+        echo divider
+        echo 'SKIPPED (no data collected for these pairs):'
+        skipFiles.each { f -> echo "  ${f.path.replace('/.skip', '')}: ${readFile(f.path).trim()}" }
         currentBuild.result = 'UNSTABLE'
     }
+    echo divider
 
-    echo "\n==== LOG OUTPUT ===="
     findFiles(glob: 'logs-out/**/*.color.log').each { f ->
-        echo "\n----- ${f.path.replace('logs-out/', '').replace('.color.log', '')} -----"
+        def label = f.path.replace('logs-out/', '').replace('.color.log', '')
+        def counts = statsByLabel[label] ?: [0, 0]
+        echo "\n---- ${label}   (ERROR=${counts[0]} WARN=${counts[1]}) ----"
         sh "cat '${f.path}'"
     }
 
