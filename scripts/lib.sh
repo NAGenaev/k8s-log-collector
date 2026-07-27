@@ -69,7 +69,7 @@ run_pair() {
     echo "reason=no pods found for selector '$selector'" > "$OUT_DIR/.skip"; return 0
   fi
 
-  while IFS=$'\t' read -r pod container restarts; do
+  printf '%s\n' "$pods" | while IFS=$'\t' read -r pod container restarts; do
     [ -z "$pod" ] && continue
     local base="$OUT_DIR/${pod}__${container}"
     kubectl --request-timeout=30s -n "$NAMESPACE" logs "$pod" -c "$container" \
@@ -86,5 +86,5 @@ run_pair() {
         rm -f "${pbase}.raw.log" "${pbase}.fetch.err"
       fi
     fi
-  done <<< "$pods"
+  done
 }
