@@ -1,0 +1,9 @@
+clusters:
+  - name: dc1
+    apiServer: https://k8s-dc1.example.com:6443
+    insecureSkipTlsVerify: false
+    namespaces: [shard-01, shard-02, shard-03]
+  - name: dc2
+    apiServer: https://k8s-dc2.example.com:6443
+    insecureSkipTlsVerify: false
+    namespaces: [shard-01, shard-02, shard-04]
