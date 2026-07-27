@@ -17,6 +17,7 @@ Jenkins-пайплайн для выгрузки логов подов депл�
 - Jenkins-агент с лейблом `k8s-tools`: `bash`, `kubectl`, `jq`, `base64`.
 - Плагины: **AnsiColor**, **Pipeline Utility Steps** (`readYaml`/`readJSON`/`writeJSON`), **Timestamper** (шаг `timestamps()`).
 - Job типа "Pipeline script from SCM" на этот репозиторий.
+- Если `Jenkinsfile`/`config`/`scripts` лежат не в корне git-репозитория (монорепо), а во вложенной папке — поправить `PROJECT_DIR` в `environment {}` в начале `Jenkinsfile` (например `'ToolsForK8s/k8s-log-collector'`). По умолчанию `'.'` (репозиторий = корень проекта).
 
 ## Схема `config/clusters.yaml`
 
