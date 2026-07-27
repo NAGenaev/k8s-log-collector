@@ -136,10 +136,90 @@ run_pair() {
       if kubectl --request-timeout=30s -n "$NAMESPACE" logs "$pod" -c "$container" \
           --previous --tail="$TAIL_LINES" > "${pbase}.raw.log" 2>"${pbase}.fetch.err"; then
         process_log "${pbase}.raw.log" "${pbase}.color.log" "${pbase}.stats"
-        tag "$pod/$container (previous): $(cat "${pbase}.stats" | tr '\n' ' ')"
+        tag "$(name "$pod/$container (previous)"): $(fmt_counts "${pbase}.stats")"
       else
         rm -f "${pbase}.raw.log" "${pbase}.fetch.err"
       fi
     fi
   done
+}
+
+# Prints the whole final report (summary, per-pod breakdown, skipped pairs,
+# colorized per-pod logs) in a single shell invocation, instead of one
+# Jenkins "readProperties"/"readFile" pipeline step per file — Jenkins prints
+# a step marker for every such call, which drowned the console in noise once
+# more than a couple of pods were involved.
+#
+# Exit status: 0 = data collected, no skips; 1 = nothing collected at all
+# (caller should fail the build); 2 = some pairs were skipped (caller should
+# mark the build UNSTABLE).
+print_report() {
+  local divider='================================================================'
+  local stats_files skip_files count
+
+  stats_files=$(find logs-out -name '*.stats' 2>/dev/null | sort)
+  skip_files=$(find logs-out -name '.skip' 2>/dev/null | sort)
+  count=0
+  [ -n "$stats_files" ] && count=$(printf '%s\n' "$stats_files" | grep -c .)
+
+  echo "$divider"
+  echo "SUMMARY: ${count} pod/container log(s) collected"
+
+  if [ "$count" -eq 0 ]; then
+    echo "$divider"
+    echo "No log data collected for any selected pair."
+    return 1
+  fi
+
+  printf '%s\n' "$stats_files" | awk -v RED="$RED_TXT" -v YEL="$YEL_TXT" -v GRN="$GREEN_BG" -v RST="$RST" '
+    function readval(f, key,   line, v) {
+      while ((getline line < f) > 0) { if (index(line, key "=") == 1) v = substr(line, length(key) + 2) }
+      close(f)
+      return v + 0
+    }
+    {
+      f = $0
+      e = readval(f, "ERROR"); w = readval(f, "WARN")
+      totalErr += e; totalWarn += w
+      label = f
+      sub(/^logs-out\//, "", label); sub(/\.stats$/, "", label)
+      podkey = label
+      sub(/__previous$/, "", podkey); sub(/__[^_]+$/, "", podkey)
+      if (!(podkey in seen)) { order[++n] = podkey; seen[podkey] = 1 }
+      podErr[podkey] += e; podWarn[podkey] += w
+    }
+    END {
+      printf "TOTAL %sERROR=%d%s   %sWARN=%d%s\n", RED, totalErr, RST, YEL, totalWarn, RST
+      print "Per-pod breakdown:"
+      for (i = 1; i <= n; i++) {
+        k = order[i]
+        printf "  %s%s%s   %sERROR=%d%s   %sWARN=%d%s\n", GRN, k, RST, RED, podErr[k], RST, YEL, podWarn[k], RST
+      }
+    }
+  '
+
+  local had_skip=0
+  if [ -n "$skip_files" ]; then
+    had_skip=1
+    echo "$divider"
+    echo "SKIPPED (no data collected for these pairs):"
+    printf '%s\n' "$skip_files" | while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      local label; label=$(dirname "$f" | sed 's#^logs-out/##')
+      echo "  $(name "$label"): $(cat "$f")"
+    done
+  fi
+  echo "$divider"
+
+  find logs-out -name '*.color.log' 2>/dev/null | sort | while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    local statsf="${f%.color.log}.stats"
+    local label; label=${f#logs-out/}; label=${label%.color.log}
+    echo ""
+    echo "---- $(name "$label")   ($(fmt_counts "$statsf")) ----"
+    cat "$f"
+  done
+
+  [ "$had_skip" -eq 1 ] && return 2
+  return 0
 }

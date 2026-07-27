@@ -91,7 +91,19 @@ pipeline {
 
         stage('Report') {
             steps {
-                script { generateReport() }
+                script {
+                    int rc = sh(label: 'report', returnStatus: true, script: '''
+                        set -uo pipefail
+                        set +x
+                        . scripts/lib.sh
+                        print_report
+                    ''')
+                    if (rc == 1) {
+                        error "No log data collected for any selected pair"
+                    } else if (rc == 2) {
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
             }
         }
     }
@@ -120,67 +132,5 @@ def fetchAndProcess(Map p) {
     } catch (err) {
         echo "WARNING: skipping ${p.cluster}/${p.namespace}: ${err.getMessage()}"
         writeFile file: "${dir}/.skip", text: "reason=credential-or-error: ${err.getMessage()}\n"
-    }
-}
-
-def generateReport() {
-    def statsFiles = findFiles(glob: 'logs-out/**/*.stats')
-    def skipFiles  = findFiles(glob: 'logs-out/**/.skip')
-    def divider = '================================================================'
-    def GREEN = "[1;30;42m"
-    def RED   = "[1;31m"
-    def YEL   = "[1;33m"
-    def RST   = "[0m"
-
-    def totalErr = 0, totalWarn = 0
-    def byPod = [:]
-    def statsByLabel = [:]
-    statsFiles.each { f ->
-        def props = readProperties file: f.path
-        int err = (props.ERROR ?: '0') as int
-        int warn = (props.WARN ?: '0') as int
-        totalErr += err; totalWarn += warn
-        def label = f.path.replace('logs-out/', '').replace('.stats', '')
-        statsByLabel[label] = [err, warn]
-        def podKey = label.replaceAll(/__previous$/, '').replaceAll(/__[^_]+$/, '')
-        def acc = byPod.getOrDefault(podKey, [0, 0])
-        byPod[podKey] = [acc[0] + err, acc[1] + warn]
-    }
-
-    // Everything below is batched into two echo calls total (summary, then
-    // logs) so the console isn't padded out with one Jenkins step marker
-    // per line — only the actual data is worth a line here.
-    def summary = []
-    summary << divider
-    summary << "SUMMARY: ${statsFiles.length} pod/container log(s) collected"
-    summary << "TOTAL ${RED}ERROR=${totalErr}${RST}   ${YEL}WARN=${totalWarn}${RST}"
-    summary << divider
-    summary << 'Per-pod breakdown:'
-    byPod.each { k, v -> summary << "  ${GREEN}${k}${RST}   ${RED}ERROR=${v[0]}${RST}   ${YEL}WARN=${v[1]}${RST}" }
-
-    if (skipFiles) {
-        summary << divider
-        summary << 'SKIPPED (no data collected for these pairs):'
-        skipFiles.each { f -> summary << "  ${GREEN}${f.path.replace('/.skip', '')}${RST}: ${readFile(f.path).trim()}" }
-        currentBuild.result = 'UNSTABLE'
-    }
-    summary << divider
-    echo summary.join('\n')
-
-    def logLines = []
-    findFiles(glob: 'logs-out/**/*.color.log').each { f ->
-        def label = f.path.replace('logs-out/', '').replace('.color.log', '')
-        def counts = statsByLabel[label] ?: [0, 0]
-        logLines << "\n---- ${GREEN}${label}${RST}   (${RED}ERROR=${counts[0]}${RST} ${YEL}WARN=${counts[1]}${RST}) ----"
-        // NB: String.trim() strips control chars (code point <= 0x20), which would eat the
-        // leading ESC (0x1B) of a highlighted first line — strip only the trailing newline instead.
-        logLines << readFile(f.path).replaceAll('[\\r\\n]+$', '')
-    }
-    if (logLines) {
-        echo logLines.join('\n')
-    }
-
-    if (statsFiles.length == 0) {
-        error "No log data collected for any selected pair"
     }
 }
